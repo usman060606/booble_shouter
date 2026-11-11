@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bubble Shooter - 1000 Levels</title>
+<style>
+html,body{margin:0;height:100%;background:#14122f;color:#fff;font-family:"Trebuchet MS",system-ui,sans-serif;display:flex;justify-content:center;align-items:center}
+#wrap{position:relative;width:min(480px,100vw,calc(100vh * .75));aspect-ratio:3/4}
+canvas{width:100%;height:100%;display:block;background:linear-gradient(#2d2a6e,#171538);border-radius:14px;touch-action:none}
+.ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#171538ea;border-radius:14px;text-align:center;padding:20px}
+.ov.hide{display:none}
+.ov h1{margin:0;font-size:2.2rem}
+.ov p{margin:0;opacity:.8}
+button,input{font:inherit;padding:10px 22px;border-radius:999px;border:0}
+button{background:#ffb627;color:#2a1c00;font-weight:700;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid #fff}
+input{width:90px;text-align:center}
+#menuBtn{position:absolute;top:8px;right:8px;padding:4px 12px;font-size:.8rem;background:#ffffff22;color:#fff}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="480" height="640"></canvas>
+  <button id="menuBtn">Menu</button>
+  <div id="ov" class="ov"></div>
+</div>
+<script>
+const C = document.getElementById('c'), x = C.getContext('2d'), ov = document.getElementById('ov');
+const W = 480, H = 640, R = 20, RH = R * Math.sqrt(3), COLS = 12, MAXR = 15, LOSE = 13, SY = H - 60, TOTAL = 1000;
+const PAL = ['#ff5d73', '#ffb627', '#8bd346', '#20c9b5', '#3aa0ff', '#9b6bff', '#ff8ad8'];
+let level = 1, G, par = 0, score = 0, miss = 0, limit = 6, ncol = 3, fx = [], state = 'menu', aim = Math.PI / 2, cur, next;
+try { level = Math.min(TOTAL, Math.max(1, +localStorage.getItem('bs_level') || 1)); } catch (e) {}
+
+const odd = r => (r + par) & 1;
+const cols = r => odd(r) ? COLS - 1 : COLS;
+const px = (r, c) => R + c * 2 * R + (odd(r) ? R : 0);
+const py = r => R + r * RH;
+
+function rng(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function nb(r, c) {
+  const o = odd(r) ? [[0,-1],[0,1],[-1,0],[-1,1],[1,0],[1,1]] : [[0,-1],[0,1],[-1,-1],[-1,0],[1,-1],[1,0]];
+  return o.map(([a, b]) => [r + a, c + b]).filter(([a, b]) => a >= 0 && a < MAXR && b >= 0 && b < cols(a));
+}
+
+function pick() {
+  const s = new Set();
+  G.forEach(row => row.forEach(v => v >= 0 && s.add(v)));
+  const a = [...s];
+  return a.length ? a[Math.floor(Math.random() * a.length)] : 0;
+}
+
+function start(n) {
+  level = n;
+  try { localStorage.setItem('bs_level', n); } catch (e) {}
+  const rn = rng(n * 7919 + 13);
+  par = 0; score = 0; miss = 0; fx = [];
+  ncol = Math.min(3 + Math.floor(n / 200), 7);
+  limit = Math.max(4, 8 - Math.floor(n / 200));
+  const rows = Math.min(4 + Math.floor(n / 70), 10), p = n % 5, hole = [0, .12, 0, .18, .28][p];
+  G = Array.from({ length: MAXR }, () => Array(COLS).fill(-1));
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols(r); c++) {
+    if (p === 2 && (c < r / 2 || c > cols(r) - 1 - r / 2)) continue;
+    if (p === 4 && r > 0 && r < rows - 1 && c > 2 && c < cols(r) - 3) continue;
+    if (rn() < hole) continue;
+    G[r][c] = (c > 0 && G[r][c - 1] >= 0 && rn() < .4) ? G[r][c - 1] : Math.floor(rn() * ncol);
+  }
+  orphans(); fx = [];
+  if (!G.some(row => row.some(v => v >= 0))) G[0][0] = 0;
+  cur = { x: W / 2, y: SY, vx: 0, vy: 0, c: pick(), moving: false };
+  next = pick();
+  state = 'play';
+  ov.classList.add('hide');
+}
+
+function orphans() {
+  const seen = new Set(), q = [];
+  for (let c = 0; c < cols(0); c++) if (G[0][c] >= 0) { q.push([0, c]); seen.add(c); }
+  while (q.length) {
+    const [r, c] = q.pop();
+    for (const [a, b] of nb(r, c)) { const k = a * COLS + b; if (G[a][b] >= 0 && !seen.has(k)) { seen.add(k); q.push([a, b]); } }
+  }
+  let n = 0;
+  for (let r = 0; r < MAXR; r++) for (let c = 0; c < cols(r); c++)
+    if (G[r][c] >= 0 && !seen.has(r * COLS + c)) {
+      fx.push({ x: px(r, c), y: py(r), vx: (Math.random() - .5) * 3, vy: 0, c: G[r][c], fall: 1 });
+      G[r][c] = -1; n++;
+    }
+  return n;
+}
+
+function flood(r, c) {
+  const col = G[r][c], seen = new Set([r * COLS + c]), q = [[r, c]], out = [];
+  while (q.length) {
+    const [a, b] = q.pop(); out.push([a, b]);
+    for (const [d, e] of nb(a, b)) { const k = d * COLS + e; if (G[d][e] === col && !seen.has(k)) { seen.add(k); q.push([d, e]); } }
+  }
+  return out;
+}
+
+function shoot() {
+  if (state !== 'play' || cur.moving) return;
+  cur.moving = true; cur.vx = Math.cos(aim) * 15; cur.vy = -Math.sin(aim) * 15;
+}
+
+function hit() {
+  for (let r = 0; r < MAXR; r++) for (let c = 0; c < cols(r); c++)
+    if (G[r][c] >= 0) { const dx = px(r, c) - cur.x, dy = py(r) - cur.y; if (dx * dx + dy * dy < (R * 1.8) ** 2) return true; }
+  return false;
+}
+
+function land() {
+  let best = 1e9, br = 0, bc = 0;
+  for (let r = 0; r < MAXR; r++) for (let c = 0; c < cols(r); c++)
+    if (G[r][c] < 0) { const dx = px(r, c) - cur.x, dy = py(r) - cur.y, d = dx * dx + dy * dy; if (d < best) { best = d; br = r; bc = c; } }
+  G[br][bc] = cur.c;
+  cur.moving = false;
+  const grp = flood(br, bc);
+  let popped = 0;
+  if (grp.length >= 3) {
+    grp.forEach(([a, b]) => { fx.push({ x: px(a, b), y: py(a), c: G[a][b], t: 0, pop: 1 }); G[a][b] = -1; });
+    popped = grp.length + orphans();
+    score += popped * 10;
+    miss = 0;
+  } else if (++miss >= limit) { addRow(); miss = 0; }
+  if (!G.some(row => row.some(v => v >= 0))) return end(true);
+  for (let r = LOSE; r < MAXR; r++) if (G[r].some(v => v >= 0)) return end(false);
+  cur = { x: W / 2, y: SY, vx: 0, vy: 0, c: next, moving: false };
+  next = pick();
+}
+
+function addRow() {
+  par ^= 1; G.unshift(Array(COLS).fill(-1)); G.pop();
+  for (let c = 0; c < cols(0); c++) G[0][c] = Math.floor(Math.random() * ncol);
+}
+
+function end(win) {
+  state = win ? 'win' : 'lose';
+  const last = win && level >= TOTAL;
+  ov.innerHTML = `<h1>${win ? (last ? 'All 1000 levels done!' : 'Level ' + level + ' cleared') : 'Level ' + level + ' failed'}</h1><p>Score: ${score}</p>` +
+    (win && !last ? `<button id="b1">Next level</button>` : '') + `<button id="b2">${win ? 'Replay level' : 'Try again'}</button><button id="b3">Menu</button>`;
+  ov.classList.remove('hide');
+  const b1 = document.getElementById('b1'); if (b1) b1.onclick = () => start(level + 1);
+  document.getElementById('b2').onclick = () => start(level);
+  document.getElementById('b3').onclick = menu;
+}
+
+function menu() {
+  state = 'menu';
+  ov.innerHTML = `<h1>Bubble Shooter</h1><p>${TOTAL} levels. Aim with mouse or finger, click to shoot, match 3 or more.</p>
+    <label>Level <input id="lv" type="number" min="1" max="${TOTAL}" value="${level}"></label><button id="go">Play</button>`;
+  ov.classList.remove('hide');
+  document.getElementById('go').onclick = () => start(Math.min(TOTAL, Math.max(1, parseInt(document.getElementById('lv').value) || 1)));
+}
+
+function bub(X, Y, c, a = 1, s = 1) {
+  x.globalAlpha = a;
+  x.beginPath(); x.arc(X, Y, (R - 1) * s, 0, 7); x.fillStyle = PAL[c]; x.fill();
+  x.lineWidth = 2; x.strokeStyle = 'rgba(0,0,0,.25)'; x.stroke();
+  x.beginPath(); x.arc(X - 6 * s, Y - 7 * s, 5 * s, 0, 7); x.fillStyle = 'rgba(255,255,255,.55)'; x.fill();
+  x.globalAlpha = 1;
+}
+
+function frame() {
+  if (state !== 'menu' && G) {
+    if (cur.moving && state === 'play') for (let i = 0; i < 2; i++) {
+      cur.x += cur.vx / 2; cur.y += cur.vy / 2;
+      if (cur.x < R) { cur.x = R; cur.vx *= -1; }
+      if (cur.x > W - R) { cur.x = W - R; cur.vx *= -1; }
+      if (cur.y <= R || hit()) { land(); break; }
+    }
+    fx.forEach(f => { if (f.fall) { f.vy += .7; f.y += f.vy; f.x += f.vx; } else f.t++; });
+    fx = fx.filter(f => f.fall ? f.y < H + R : f.t < 10);
+  }
+  x.clearRect(0, 0, W, H);
+  if (G) {
+    for (let r = 0; r < MAXR; r++) for (let c = 0; c < cols(r); c++) if (G[r][c] >= 0) bub(px(r, c), py(r), G[r][c]);
+    fx.forEach(f => f.fall ? bub(f.x, f.y, f.c) : bub(f.x, f.y, f.c, 1 - f.t / 10, 1 + f.t / 10));
+    x.setLineDash([8, 8]); x.strokeStyle = 'rgba(255,93,115,.6)'; x.lineWidth = 2;
+    x.beginPath(); x.moveTo(0, py(LOSE) - R); x.lineTo(W, py(LOSE) - R); x.stroke();
+    if (state === 'play' && !cur.moving) {
+      x.strokeStyle = 'rgba(255,255,255,.5)';
+      x.beginPath(); x.moveTo(cur.x, cur.y); x.lineTo(cur.x + Math.cos(aim) * 130, cur.y - Math.sin(aim) * 130); x.stroke();
+    }
+    x.setLineDash([]);
+    bub(cur.x, cur.y, cur.c);
+    bub(W / 2 - 80, SY + 8, next, .85, .7);
+    x.fillStyle = '#fff'; x.font = 'bold 16px "Trebuchet MS",sans-serif';
+    x.textAlign = 'left'; x.fillText('Level ' + level + ' / ' + TOTAL, 14, H - 12);
+    x.textAlign = 'center'; x.fillText('New row in ' + (limit - miss), W / 2, H - 12);
+    x.textAlign = 'right'; x.fillText('Score ' + score, W - 14, H - 12);
+  }
+  requestAnimationFrame(frame);
+}
+
+function setAim(e) {
+  const b = C.getBoundingClientRect(), mx = (e.clientX - b.left) * W / b.width, my = (e.clientY - b.top) * H / b.height;
+  aim = Math.min(Math.PI - .15, Math.max(.15, Math.atan2(SY - my, mx - W / 2)));
+}
+C.addEventListener('pointermove', setAim);
+C.addEventListener('pointerdown', e => { setAim(e); shoot(); });
+document.getElementById('menuBtn').onclick = menu;
+menu(); frame();
+</script>
+</body>
+</html>
