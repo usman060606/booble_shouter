@@ -1,0 +1,10 @@
+{
+  "name": "Bubble Shooter - 1000 Levels",
+  "short_name": "Bubble Shooter",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#171538",
+  "theme_color": "#171538",
+  "description": "Play Bubble Shooter offline after the first load."
+}
